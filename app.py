@@ -65,31 +65,42 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
             prompt = """
             এই অডিওটি শুনে সবচেয়ে আকর্ষণীয় ও ভাইরাল হওয়ার মতো ১টি অংশ (১৫ থেকে ৪৫ সেকেন্ডের মধ্যে) খুঁজে বের করো।
             সেই অংশের প্রতি ২-৪ সেকেন্ডের ছোট ছোট ক্যাপশন টাইমস্ট্যাম্পসহ তৈরি করো।
-            শুধুমাত্র নিচের JSON ফরম্যাটে উত্তর দাও, অন্য কোনো কথা লিখবে না:
-            {
-              "start": 10.0,
-              "end": 35.0,
-              "title": "ক্লিপের শিরোনাম",
-              "captions": [
-                {"start": 10.0, "end": 13.0, "text": "প্রথম বাক্য"},
-                {"start": 13.0, "end": 16.5, "text": "দ্বিতীয় বাক্য"}
-              ]
-            }
             """
             response = client.models.generate_content(
                 model="gemini-3.8-flash",
                 contents=[
                     types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3"),
                     prompt
-                ]
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "start": {"type": "NUMBER"},
+                            "end": {"type": "NUMBER"},
+                            "title": {"type": "STRING"},
+                            "captions": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "start": {"type": "NUMBER"},
+                                        "end": {"type": "NUMBER"},
+                                        "text": {"type": "STRING"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
             )
-            clean_json = response.text.replace("```json", "").replace("```", "").strip()
-            clip_data = json.loads(clean_json)
+            clip_data = json.loads(response.text)
         except Exception as e:
             st.error(f"আসল এরর মেসেজ: {str(e)}")
             st.stop()
 
-    with st.spinner("৩/৩: ৯:১৬ ক্রপিং ও ক্যাপশন বসানো হচ্ছে..."):
+    with st.spinner("৩/৩: ৯:১৬ ক্রপিং ও ক্যাপশন বসানো হচ্ছে (২-৩ মিনিট সময় নেবে)..."):
         start_t = float(clip_data["start"])
         end_t = float(clip_data["end"])
         
@@ -111,12 +122,10 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
         
         final_video = CompositeVideoClip(caption_clips)
         output_file = "viral_short.mp4"
-        final_video.write_videofile(output_file, codec="libx264", audio_codec="aac", fps=24)
+        final_video.write_videofile(output_file, codec="libx264", audio_codec="aac", fps=24, preset="ultrafast")
 
     st.success(f"তৈরি হয়ে গেছে! শিরোনাম: {clip_data['title']}")
     st.video(output_file)
     with open(output_file, "rb") as file:
         st.download_button("ভিডিও ডাউনলোড করুন ⬇️", file, file_name="viral_clip.mp4")
 
-
-                
