@@ -2,6 +2,7 @@ import streamlit as st
 import yt_dlp
 import os
 import json
+import subprocess
 import cv2
 import mediapipe as mp
 from faster_whisper import WhisperModel
@@ -15,6 +16,7 @@ api_key = st.sidebar.text_input("আপনার Gemini API Key দিন:", typ
 
 input_type = st.radio("ভিডিও ইনপুট মাধ্যম:", ["YouTube URL", "ভিডিও আপলোড"])
 video_path = "input_video.mp4"
+audio_path = "temp_audio.wav"
 
 if input_type == "YouTube URL":
     url = st.text_input("YouTube ভিডিও লিংক পেস্ট করুন:")
@@ -67,7 +69,7 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
                     download_youtube(url, video_path)
                 elif input_type == "ভিডিও আপলোড" and uploaded_file:
                     with open(video_path, "wb") as f:
-                        f.write(uploaded_file.read())
+                        f.write(uploaded_file.getbuffer())
                 else:
                     st.warning("দয়া করে একটি লিংক দিন অথবা ভিডিও আপলোড করুন।")
                     st.stop()
@@ -76,8 +78,12 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
                 st.stop()
 
         with st.spinner("২/৪: অডিও থেকে টেক্সট (Whisper) তৈরি হচ্ছে..."):
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
             model = WhisperModel("base", device="cpu", compute_type="int8")
-            segments, _ = model.transcribe(video_path, word_timestamps=True)
+            segments, _ = model.transcribe(audio_path, word_timestamps=True)
             segments = list(segments)
             full_transcript = "\n".join([f"[{s.start:.1f}s - {s.end:.1f}s]: {s.text}" for s in segments])
 
