@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import json
+import time
 import subprocess
 import cv2
 import mediapipe as mp
@@ -115,57 +116,71 @@ if st.button("✨ Generate 4 Viral 9:16 Shorts"):
         )
 
     with st.spinner("🧠 Step 2/3: AI is scanning the entire video to find the Top 4 viral moments..."):
-        try:
-            client = genai.Client(api_key=api_key.strip())
-            with open(audio_path, "rb") as f:
-                audio_bytes = f.read()
+        client = genai.Client(api_key=api_key.strip())
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
 
-            prompt = f"""
-            Listen to the ENTIRE audio from beginning to end. 
-            Identify the TOP 4 most engaging, high-retention, viral-worthy segments spread across different parts of the video.
-            Each clip MUST have a duration matching: {clip_duration}.
-            Ensure the 4 clips do not overlap with each other.
-            Provide a catchy English title and a viral score (80-99) for each clip.
-            """
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=[
-                    types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3"),
-                    prompt
-                ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "OBJECT",
-                        "properties": {
-                            "clips": {
-                                "type": "ARRAY",
-                                "items": {
-                                    "type": "OBJECT",
-                                    "properties": {
-                                        "start": {"type": "NUMBER"},
-                                        "end": {"type": "NUMBER"},
-                                        "title": {"type": "STRING"},
-                                        "viral_score": {"type": "INTEGER"}
-                                    },
-                                    "required": ["start", "end", "title", "viral_score"]
-                                }
-                            }
-                        },
-                        "required": ["clips"]
+        prompt = f"""
+        Listen to the ENTIRE audio from beginning to end. 
+        Identify the TOP 4 most engaging, high-retention, viral-worthy segments spread across different parts of the video.
+        Each clip MUST have a duration matching: {clip_duration}.
+        Ensure the 4 clips do not overlap with each other.
+        Provide a catchy English title and a viral score (80-99) for each clip.
+        """
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "clips": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "start": {"type": "NUMBER"},
+                                "end": {"type": "NUMBER"},
+                                "title": {"type": "STRING"},
+                                "viral_score": {"type": "INTEGER"}
+                            },
+                            "required": ["start", "end", "title", "viral_score"]
+                        }
                     }
+                },
+                "required": ["clips"]
+            }
+        )
+
+        # Auto-fallback across models if one has 503 high demand
+        models_to_try = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+        response = None
+        last_error = ""
+        for m_name in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=m_name,
+                    contents=[
+                        types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3"),
+                        prompt
+                    ],
+                    config=config
                 )
-            )
-            data = json.loads(response.text)
-            if isinstance(data, dict):
-                clips_list = data.get("clips", [])[:4]
-            elif isinstance(data, list):
-                clips_list = data[:4]
-            else:
-                clips_list = []
-        except Exception as e:
-            st.error(f"❌ Gemini API Error: {str(e)}")
+                if response:
+                    break
+            except Exception as e:
+                last_error = str(e)
+                time.sleep(2)
+
+        if not response:
+            st.error(f"❌ All AI models are currently busy. Please click Generate again in 10 seconds. ({last_error})")
             st.stop()
+
+        data = json.loads(response.text)
+        if isinstance(data, dict):
+            clips_list = data.get("clips", [])[:4]
+        elif isinstance(data, list):
+            clips_list = data[:4]
+        else:
+            clips_list = []
 
     with st.spinner("🎬 Step 3/3: Smart-cropping all 4 clips to 9:16..."):
         generated_files = []
