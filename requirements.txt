@@ -1,0 +1,7 @@
+streamlit
+yt-dlp
+faster-whisper
+google-genai
+opencv-python-headless
+mediapipe
+moviepy==1.0.3
