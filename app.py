@@ -22,7 +22,15 @@ else:
     uploaded_file = st.file_uploader("ভিডিও ফাইল আপলোড করুন (MP4)", type=["mp4", "mov"])
 
 def download_youtube(url, output_path):
-    ydl_opts = {'format': 'best[ext=mp4]', 'outtmpl': output_path, 'overwrites': True}
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best',
+        'outtmpl': output_path,
+        'overwrites': True,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+    }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
@@ -54,12 +62,17 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
         st.error("দয়া করে বাম পাশের সাইডবারে Gemini API Key দিন!")
     else:
         with st.spinner("১/৪: ভিডিও প্রস্তুত করা হচ্ছে..."):
-            if input_type == "YouTube URL" and url:
-                download_youtube(url, video_path)
-            elif input_type == "ভিডিও আপলোড" and uploaded_file:
-                with open(video_path, "wb") as f:
-                    f.write(uploaded_file.read())
-            else:
+            try:
+                if input_type == "YouTube URL" and url:
+                    download_youtube(url, video_path)
+                elif input_type == "ভিডিও আপলোড" and uploaded_file:
+                    with open(video_path, "wb") as f:
+                        f.write(uploaded_file.read())
+                else:
+                    st.warning("দয়া করে একটি লিংক দিন অথবা ভিডিও আপলোড করুন।")
+                    st.stop()
+            except Exception as e:
+                st.error("YouTube সার্ভার থেকে ভিডিও ব্লক করা হয়েছে। দয়া করে 'ভিডিও আপলোড' অপশন ব্যবহার করুন।")
                 st.stop()
 
         with st.spinner("২/৪: অডিও থেকে টেক্সট (Whisper) তৈরি হচ্ছে..."):
