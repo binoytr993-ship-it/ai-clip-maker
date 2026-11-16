@@ -3,9 +3,9 @@ import yt_dlp
 import os
 import json
 import subprocess
+import time
 import cv2
 import mediapipe as mp
-from faster_whisper import WhisperModel
 from google import genai
 from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
 
@@ -16,7 +16,7 @@ api_key = st.sidebar.text_input("আপনার Gemini API Key দিন:", typ
 
 input_type = st.radio("ভিডিও ইনপুট মাধ্যম:", ["YouTube URL", "ভিডিও আপলোড"])
 video_path = "input_video.mp4"
-audio_path = "temp_audio.wav"
+audio_path = "temp_audio.mp3"
 
 if input_type == "YouTube URL":
     url = st.text_input("YouTube ভিডিও লিংক পেস্ট করুন:")
@@ -30,7 +30,7 @@ def download_youtube(url, output_path):
         'overwrites': True,
         'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -63,7 +63,7 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
     if not api_key:
         st.error("দয়া করে বাম পাশের সাইডবারে Gemini API Key দিন!")
     else:
-        with st.spinner("১/৪: ভিডিও প্রস্তুত করা হচ্ছে..."):
+        with st.spinner("১/৩: ভিডিও প্রস্তুত করা হচ্ছে..."):
             try:
                 if input_type == "YouTube URL" and url:
                     download_youtube(url, video_path)
@@ -77,31 +77,40 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
                 st.error("YouTube সার্ভার থেকে ভিডিও ব্লক করা হয়েছে। দয়া করে 'ভিডিও আপলোড' অপশন ব্যবহার করুন।")
                 st.stop()
 
-        with st.spinner("২/৪: অডিও থেকে টেক্সট (Whisper) তৈরি হচ্ছে..."):
+        with st.spinner("২/৩: Gemini AI দিয়ে ভাইরাল অংশ ও ক্যাপশন তৈরি হচ্ছে..."):
             subprocess.run(
-                ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path],
+                ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "4", audio_path],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            model = WhisperModel("base", device="cpu", compute_type="int8")
-            segments, _ = model.transcribe(audio_path, word_timestamps=True)
-            segments = list(segments)
-            full_transcript = "\n".join([f"[{s.start:.1f}s - {s.end:.1f}s]: {s.text}" for s in segments])
-
-        with st.spinner("৩/৪: AI দিয়ে ভাইরাল অংশ খোঁজা হচ্ছে..."):
             client = genai.Client(api_key=api_key)
-            prompt = f"""
-            নিচের ভিডিও ট্রান্সক্রিপ্ট থেকে সবচেয়ে আকর্ষণীয় ও ভাইরাল হওয়ার মতো ১টি অংশ (১৫ থেকে ৪৫ সেকেন্ডের মধ্যে) খুঁজে বের করো।
-            শুধুমাত্র নিচের JSON ফরম্যাটে উত্তর দাও, অন্য কোনো কথা লিখবে না:
-            {{"start": 10.5, "end": 40.0, "title": "ক্লিপের শিরোনাম"}}
+            uploaded_audio = client.files.upload(file=audio_path)
             
-            ট্রান্সক্রিপ্ট:
-            {full_transcript[:6000]}
+            while uploaded_audio.state.name == "PROCESSING":
+                time.sleep(2)
+                uploaded_audio = client.files.get(name=uploaded_audio.name)
+
+            prompt = """
+            এই অডিওটি শুনে সবচেয়ে আকর্ষণীয় ও ভাইরাল হওয়ার মতো ১টি অংশ (১৫ থেকে ৪৫ সেকেন্ডের মধ্যে) খুঁজে বের করো।
+            সেই অংশের প্রতি ২-৪ সেকেন্ডের ছোট ছোট সাবটাইটেল বা ক্যাপশন টাইমস্ট্যাম্পসহ তৈরি করো।
+            শুধুমাত্র নিচের JSON ফরম্যাটে উত্তর দাও, অন্য কোনো কথা লিখবে না:
+            {
+              "start": 10.0,
+              "end": 35.0,
+              "title": "ক্লিপের শিরোনাম",
+              "captions": [
+                {"start": 10.0, "end": 13.0, "text": "প্রথম বাক্য"},
+                {"start": 13.0, "end": 16.5, "text": "দ্বিতীয় বাক্য"}
+              ]
+            }
             """
-            response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[uploaded_audio, prompt]
+            )
             clean_json = response.text.replace("```json", "").replace("```", "").strip()
             clip_data = json.loads(clean_json)
 
-        with st.spinner("৪/৪: ৯:১৬ ক্রপিং ও ক্যাপশন বসানো হচ্ছে..."):
+        with st.spinner("৩/৩: ৯:১৬ ক্রপিং ও ক্যাপশন বসানো হচ্ছে..."):
             start_t = float(clip_data["start"])
             end_t = float(clip_data["end"])
             
@@ -110,11 +119,11 @@ if st.button("ভাইরাল ক্লিপ তৈরি করুন 🚀"
             cropped_video = video.crop(x1=x1, y1=0, width=target_w, height=video.h)
             
             caption_clips = [cropped_video]
-            for seg in segments:
-                if seg.end >= start_t and seg.start <= end_t:
-                    c_start = max(0, seg.start - start_t)
-                    c_end = min(end_t - start_t, seg.end - start_t)
-                    txt = (TextClip(seg.text.strip(), fontsize=42, color='yellow', font='DejaVu-Sans-Bold',
+            for cap_item in clip_data.get("captions", []):
+                c_start = max(0, float(cap_item["start"]) - start_t)
+                c_end = min(end_t - start_t, float(cap_item["end"]) - start_t)
+                if c_end > c_start:
+                    txt = (TextClip(cap_item["text"].strip(), fontsize=42, color='yellow', font='DejaVu-Sans-Bold',
                                     stroke_color='black', stroke_width=2, method='caption', size=(target_w*0.85, None))
                            .set_position(('center', 0.72), relative=True)
                            .set_start(c_start)
