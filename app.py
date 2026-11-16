@@ -88,7 +88,7 @@ def get_smart_crop_x(video_path, start_t, end_t):
         if ret:
             results = mp_face.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             if results.detections:
-                bbox = results.detections.location_data.relative_bounding_box
+                bbox = results.detections[0].location_data.relative_bounding_box
                 face_center = int((bbox.xmin + bbox.width / 2) * width)
                 center_x = max(target_width // 2, min(width - target_width // 2, face_center))
     except Exception:
@@ -109,7 +109,6 @@ if st.button("✨ Generate 4 Viral 9:16 Shorts"):
     with st.spinner("🎵 Step 1/3: Processing video & compressing audio for full-length AI scan..."):
         with open(video_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-        # Low bitrate mono audio allows 30-60 min videos to fit easily within API limits
         subprocess.run(
             ["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "24k", audio_path],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -158,18 +157,22 @@ if st.button("✨ Generate 4 Viral 9:16 Shorts"):
                 )
             )
             data = json.loads(response.text)
-            clips_list = data.get("clips", data if isinstance(data, list) else)[:4]
+            if isinstance(data, dict):
+                clips_list = data.get("clips", [])[:4]
+            elif isinstance(data, list):
+                clips_list = data[:4]
+            else:
+                clips_list = []
         except Exception as e:
             st.error(f"❌ Gemini API Error: {str(e)}")
             st.stop()
 
     with st.spinner("🎬 Step 3/3: Smart-cropping all 4 clips to 9:16..."):
-        generated_files =
+        generated_files = []
         try:
             full_video = VideoFileClip(video_path)
             max_dur = full_video.duration
             
-            # Fallback if AI returns fewer than 4 clips
             while len(clips_list) < 4:
                 idx = len(clips_list)
                 fallback_start = min(max_dur - 35, (max_dur / 4) * idx)
@@ -207,7 +210,6 @@ if st.button("✨ Generate 4 Viral 9:16 Shorts"):
     st.balloons()
     st.success("🎉 4 Clean 9:16 Viral Shorts Generated Successfully!")
     
-    # Display all 4 clips in a clean 2x2 grid
     cols = st.columns(2)
     for idx, item in enumerate(generated_files):
         with cols[idx % 2]:
